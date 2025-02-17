@@ -16,5 +16,5 @@ module "eks" {
     # eks_subnet_ids_value_list             =   [var.eks_subnet_ids_list]
     eks_subnet_ids_value_list               =   var.eks_subnet_ids_list
     eks_worker_node_instance_key_name_value =   var.eks_worker_node_instance_key_name
-    vpc_id_value                            =   var.vpc_id_abcd
+    vpc_id_value                            =   var.vpc_id
 }
