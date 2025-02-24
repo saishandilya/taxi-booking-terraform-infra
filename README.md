@@ -37,7 +37,17 @@ Before starting this project, ensure you have the following installed and config
 ### **4. Additional Setup**  
 - AWS credentials configured on local Machine **(excluding root credentials)** using (`aws configure`).
 
-## Infrastructure Setup  
+## Architectural Diagram
+- Needed to be added...
+
+## Infrastructure Setup  (Under Process can still be optimised...)
+
+### **Infrastructure Overview**  
+This project sets up a **Jenkins Master-Slave architecture** using **Ansible** and **Terraform**. The infrastructure will provision **three EC2 instances** with the following roles:  
+
+- **Ansible Master Server**: Manages Jenkins installation and configuration.  
+- **Jenkins Master Server**: Installs **Java and Jenkins**, starts Jenkins, and enables it on boot.  
+- **Jenkins Slave Server**: Installs **Java, Maven, and Docker**, configures Docker to start on boot, and connects to the **Jenkins Master**.
 
 Follow these steps to set up the AWS infrastructure using Terraform.  
 
@@ -59,3 +69,7 @@ jenkins_instance_type = "t2.medium"
 instance_key_name     = "devops-training"
 security_group_id     = "sg-xxxxxxxxxxxxx"
 public_subnet_id      = "subnet-xxxxxxxxxx"
+```
+
+#### **Note:**  Place your **EC2 Key Pair** in `modules/ec2/files/` and `terraform.tfvars` in the **main project folder**. These files are excluded in `.gitignore`, so they will not be pushed to GitHub.
+The .pem file is required to establish a secure SSH connection between the Ansible Server and Jenkins Master-Slave Servers.
