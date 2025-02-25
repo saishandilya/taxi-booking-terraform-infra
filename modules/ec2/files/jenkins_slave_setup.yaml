@@ -5,7 +5,12 @@
   - name: update ubuntu repo and cache 
     apt: 
       update_cache: yes 
-      cache_valid_time: 3600 
+      cache_valid_time: 3600
+
+  - name: Install AWS CLI
+    apt:
+      name: awscli
+      state: present
 
   - name: install java 
     apt: 
