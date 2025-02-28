@@ -36,6 +36,7 @@ Before starting this project, ensure you have the following installed and config
 
 ### **4. Additional Setup**  
 - AWS credentials configured on local Machine **(excluding root credentials)** using (`aws configure`).
+- Create new or use existing Github Account.
 
 ## Architectural Diagram
 - Needed to be added...
@@ -214,3 +215,175 @@ terraform apply --auto-approve
             }
         }
         ```
+4. **Code Quality Analysis**
+    - Log in to [SonarCloud](https://www.sonarsource.com/products/sonarcloud/signup/) using your GitHub account.
+    - **Create an Organization** 
+        - Click the **‘+’** symbol on the top right and select **Create a new organization**.  
+        - Choose **Create one manually**, enter the **Organization Name** and **Organization Key**.  
+        - Select the **Free Tier** and click **Create Organization**.  
+    - **Create a New Project**  
+        - In the newly created organization, click **Analyze New Project**.  
+        - Provide a **Display Name** (the **Project Key** will be generated automatically as `org_name_display_name`).  
+        - Set **Project Visibility** to **Public**.  
+        - Choose **Set up project for Clean as You Code** as **Previous Version**, and click **Create Project**.
+    - **Set Up Analysis Method**  
+        - Select **Manually** as the **Analysis Method**.  
+        - Choose **Maven** as the analysis tool.  
+        - Copy & Save the generated **SONAR_TOKEN** and its **Value**.
+    - **Configure Jenkins with SonarCloud Credentials**  
+        - Go to **Manage Jenkins → Manage Credentials**, select **Global**, and click **Add Credentials**.
+        - Select **Kind**: **Secret Text** and provide the following details:
+            - **Secret**: Copy & Paste generated `Sonar Token value`. 
+            - **ID**: `SONAR_TOKEN`  
+            - **Description**: Sonar Token.
+        - Click **Create**.
+    - Copy the below provided code and add it as a **new stage** in the Pipeline, this stage **Code Quality Analysis** performs static code quality analysis against **Security, Reliability, Maintainability, Hotspots Reviewed, Coverage and Duplications**.
+   - Add the **SONAR_ORG, SONAR_PROJECT_KEY, SONAR_TOKEN** to the **environment** variables in the Pipeline.
+        ```groovy
+        environment {
+            SONAR_TOKEN=credentials('SONAR_TOKEN')
+            SONAR_PROJECT_KEY=<your sonar project key>
+            SONAR_ORG=<your sonar organisation name>
+        }
+        ```
+        #### `Code Quality Analysis Stage`
+        ```groovy
+        stage('Code Quality Analysis') {
+            steps {
+                echo "Performing Static Code Quality Analysis"
+                sh  """
+                    mvn sonar:sonar \
+                        -Dsonar.organization=${SONAR_ORG} \
+                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                        -Dsonar.host.url=https://sonarcloud.io \
+                        -Dsonar.token=${SONAR_TOKEN}
+                    """
+            }
+        }
+        ```
+
+5. **Quality Gate Check**(optional)
+    - **Create a Quality Gate**
+        - In the created **Organization**, navigate to **Quality Gates**, click on **Create**, provide a **Name**, and click **Save**. 
+    - **Add Conditions to the Quality Gate**
+        - Open the newly created **Quality Gate** and click **Add Conditions**.  
+        - Set the following values:  
+            - **Where**: Select **Overall Code**.  
+            - **Search for Metrics**: Select **Bugs**.  
+            - **Threshold Value**: Set to **150**.  
+        - Click **Save Condition**.
+    - **Set the Quality Gate as Default**  
+        - Click on the **three dots** in the top-right corner of the created **Quality Gate**, from the dropdown, select **Set as Default**.
+    - Copy the below provided code and add it as a **new stage** in the Pipeline, this stage **Quality Gate Check** verifies the specified condition and determines whether the quality gate has passed or failed based on the provided metrics.
+        #### `Quality Gate Check Stage`
+        - This stage installs **jq** and calls the `checkSonarCloudQualityGate` function, storing the response in `status`. If the response is **ERROR**, the Quality Gate fails; otherwise, the Quality Gate passes.
+        ```groovy
+        stage('Quality Gate Check') {
+            steps {
+                echo "Validating code quality against quality gate metrics"
+                script {
+                    timeout(time: 5, unit: 'MINUTES') { // Wait for SonarCloud processing
+                        sh 'sudo apt-get install -y jq || sudo yum install -y jq'
+                        def status = checkSonarCloudQualityGate()
+                        if (status == "ERROR") {
+                            error "Quality Gate failed. Bugs exceed the threshold!"
+                        } else {
+                            echo "Quality Gate passed."
+                        }
+                    }
+                }
+            }
+        }
+        ```
+        #### `checkSonarCloudQualityGate`
+        - The `checkSonarCloudQualityGate()` function verifies if a project's code quality meets the defined **Quality Gate** conditions in **SonarCloud**. It makes an **API request** using `curl` and retrieves the **Quality Gate status**, which returns **"OK"**(Pass) or **"ERROR"**(Fail). This Status is passed to `Quality Gate Check` Stage.
+        ```groovy
+        def checkSonarCloudQualityGate() {
+            def response = sh(
+                script: """
+                    curl -s -u ${SONAR_TOKEN}: \
+                    "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${SONAR_PROJECT_KEY}" \
+                    | jq -r '.projectStatus.status'
+                """,
+                returnStdout: true
+            ).trim()
+
+            return response  // "OK" if passed, "ERROR" if failed
+        }
+        ```
+
+6. **Publish Artifacts To Jfrog**
+    - **Sign Up for JFrog Free Trial**  
+        - Go to [JFrog Free Trial](https://jfrog.com/start-free/#trialOptions) and select the **14-day free trial** option, then sign up using **Google**.
+        - Provide your last name, edit the **hostname**, choose your **hosting preferences** select your **working region**, and then click **Confirm and Start Trial**.  
+        - Your **JFrog Trial Environment** will be created. Now, **Re-login** using Google after setup.
+    - **Create a Maven Repository**  
+        - Click User Profile in the top-right corner and select **Quick Repository Creation**, now choose **Maven**, click **Next**, provide a **repository prefix** (e.g., `taxi`), and click **Create** to generate repositories.
+    - **Generate an Access Token**  
+        - Navigate to **Administrator → User Management → Access Tokens**. Click **Generate Token** and choose **Scoped Token**, and provide a **description** (e.g., `jfrog jenkins token`). Set **Token Scope** to `admin`, enter your **username** (e.g., your name or email ID), and set **Expiration Time** to **30 days**.  
+        - Click **Generate**, then **copy and save** the token securely.
+    - **Add Jfrog Credentials:** 
+        - Go to **Manage Jenkins → Manage Credentials**, select **Global**, and click **Add Credentials**.
+        - Select **Kind**: **SSH Username and Password** and provide the following details:
+            - **Username**: `<username provided while creating jfrog token>`
+            - **Password**: `<copy paste generated token>`
+            - **ID**: `jfrog-cred`  
+            - **Description**: Jfrog credentials for Jenkins.
+        - Click **Create**.  
+    -   Copy the below provided code and add it as a **new stage** in the Pipeline, this stage **Publish Artifacts To Jfrog** performs publishing generated **Artifacts to JFrog repository**.
+        #### `Publish Artifacts To Jfrog Stage`
+        - This stage connects to JFrog Artifactory server using Jenkins Artifactory Plugin, Upload specification, JAR file, and publish build information to JFrog Artifactory.
+        #### `Add Registry`
+        ```groovy
+        def registry='<your jfrog-registry url>' (e.g., https://taxibooking.jfrog.io/)
+        ```
+        #### 
+        ```groovy
+        stage('Publish Artifacts To Jfrog') {
+            steps {
+                echo "Publishing Artifacts to JFrog repository"
+                script {
+                    // 1️⃣ Connect to JFrog Artifactory server using Jenkins Artifactory Plugin
+                    def server = Artifactory.newServer(
+                        url: registry + "/artifactory", 
+                        credentialsId: "jfrog-cred"
+                    )
+                    
+                    // 2️⃣ Define metadata properties for tracking builds
+                    def properties = "buildid=${env.BUILD_ID},commitid=${GIT_COMMIT}"
+                    
+                    echo "Workspace Path: ${env.WORKSPACE}"
+
+                    // 3️⃣ Upload specification (Fixed file pattern issue)
+                    def uploadSpec = """{
+                        "files": [
+                            {
+                                "pattern": "${env.WORKSPACE}/<jenkins pipeline name>/target/(*)",
+                                "target": "<repository prefix name>-libs-release-local/{1}",
+                                "flat": "true",
+                                "props": "${properties}"
+                            }
+                        ]
+                    }"""
+
+                    // 4️⃣ Upload JAR file using Artifactory plugin
+                    def buildInfo = server.upload(uploadSpec)
+        
+                    // 5️⃣ Collect build environment details
+                    buildInfo.env.collect()
+        
+                    // 6️⃣ Publish build information to JFrog Artifactory
+                    server.publishBuildInfo(buildInfo)
+                }
+            }
+        }
+        ```
+
+7. **Docker Image Creation**
+8. **Publish Docker Image to Jfrog & Docker Hub**
+9. **Test Container Creation using Docker Image**
+10. **Cluster Validation**
+    - This stage requires an existing **EKS cluster**. If you do not have one and you are doing it for the first time, follow the steps in the **EKS Cluster Setup Guide** to create an EKS cluster. Once completed, return to this step.  
+    - If an EKS cluster already exists, you can skip the creation step.  
+
+    #### For EKS setup instructions, refer to:  [**EKS Cluster Setup Guide**](readmes/eks-cluster-setup.md)
