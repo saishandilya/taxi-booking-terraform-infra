@@ -4,10 +4,10 @@
 
 This project serves as a **step-by-step guide** for learning and implementing **DevOps practices** in real-world scenarios. It covers **Infrastructure Automation, CI/CD pipeline setup, and Application Deployment**.  
 
-We use **two repositories** in this project:  
+We use **two repositories** in this project:  (To avoid complication of infrastructure and application deployment in a single repo..reason infra is triggered once but appliaction can be web hooked resulting in the trigger of the pipelines all the time)
 
 1. **AWS Infrastructure Repository** - Manages AWS infrastructure, including **EC2** and **EKS**, using **Terraform**.  
-2. **Application Repository** - Contains the sample taxi booking application code, CI/CD pipeline using **Jenkins**, along with the **Dockerfile**, installation **shell scripts**, and **Helm charts**. 
+2. **Application Repository** - Contains the sample application code`(i.e., taxi booking app)`, CI/CD pipeline using **JenkinsFile**, along with the **Dockerfile**, installation **shell scripts**, and **Helm charts**. 
 
 By following this guide, you will gain hands-on experience with **AWS, Terraform, Git, Jenkins, SonarCloud, JFrog, Docker, Kubernetes using Helm, Prometheus, and Grafana**. You will learn how to automate and manage cloud infrastructure while effectively deploying applications on Kubernetes.
 
@@ -34,21 +34,23 @@ Before starting this project, ensure you have the following installed and config
 - Create an **S3** bucket to store the Terraform state file backend.
 - Create an **EC2** Instance **Key Pair**.
 
-### **4. Additional Setup**  
-- AWS credentials configured on local Machine **(excluding root credentials)** using (`aws configure`).
+### **4. Additional Setup**
+- Configure AWS `User` credentials with granular permissions on the local machine using (`aws configure`).
+
+    *Note: Avoid/exclude Root credentials usage.*
 - Create new or use existing Github Account.
 
 ## Architectural Diagram
 - Needed to be added...
 
-## Infrastructure Setup  (Under Process can still be optimised...)
+## Infrastructure Setup  (Under Process can still be optimised...check individual calls to eks and ecs still under same modules.)
 
 ### **Infrastructure Overview**  
 This project sets up a **Jenkins Master-Slave architecture** using **Ansible** and **Terraform**. The infrastructure will provision **three EC2 instances** with the following roles:  
 
 - **Ansible Master Server**: Manages Jenkins installation and configuration.  
 - **Jenkins Master Server**: Installs **Java and Jenkins**, starts Jenkins, and enables it on boot.  
-- **Jenkins Slave Server**: Installs **Java, Maven, AWS Cli and Docker**, configures Docker to start on boot, and connects to the **Jenkins Master**.
+- **Jenkins Slave Server**: Installs **Java, Maven, AWS Cli, Docker, Kubectl, and Helm**, configures Docker to start on boot, and connects to the **Jenkins Master**.
 
 Follow these steps to set up the AWS infrastructure using Terraform.  
 
@@ -147,9 +149,18 @@ terraform apply --auto-approve
    - **Terraform Plugin**  
 - Click **Install** to begin the installation.
 
+### **7. Deploy EKS** (under process...)
+- Add the EKS deployment stage details here and tell that they can create the EKS Cluster here and use it in the Project or delete the EKS if they are working on the project for more than a day. 
+
 ## Application Setup  (Under Process can still be optimised...)
 
-### **1. Jenkins Pipeline Configuration**
+### **1. Clone the Application Repository**
+- **Clone & push or Fork** the Application repository to your GitHub account to set up your local development environment.
+    ```sh
+    git clone https://github.com/saishandilya/taxi-booking.git
+    ```
+
+### **2. Jenkins Pipeline Configuration**
 - Log in to **GitHub**, go to **User Profile → Settings → Developer Settings → Personal Access Tokens → Tokens (Classic)**, click **Generate New Token (Classic)**, enter your password, provide a **Note Name** (e.g., `GitHub Token`), select the **necessary scope permissions** (or select all checkboxes), and click **Generate Token**.
 - **Add GitHub Credentials:** 
     - Go to **Manage Jenkins → Manage Credentials**, select **Global**, and click **Add Credentials**.
@@ -163,19 +174,29 @@ terraform apply --auto-approve
 - In the **Pipeline** section, set **Definition** to `Pipeline Script` and inside **Script** select `Hello World` from the dropdown.
 - Click **Apply & Save**.
 
-### **2. Creating Pipeline Stages**
+### **3. Creating Pipeline Stages**
 1. **Checkout Stage:** 
-    - In the **Pipeline** section, click **Pipeline Syntax**, search for **Git**, enter the **Repository URL** (`https://github.com/saishandilya/taxi-booking.git`), select **Branch** as `main`, set **Credentials** to `None`, generate the **Pipeline Script**, copy the generated code, and replace it in the **checkout stage**.  
+    - In the **Pipeline** section, click **Pipeline Syntax**, search for **Git**, enter the **Repository URL** (`<your github repo url from Step 1>`), select **Branch** as `main`, set **Credentials** to `None`, generate the **Pipeline Script**, copy the generated code, and replace it in the **checkout stage**.
+    - Adding a `parameter` section to choose between **'deploy'** for application deployment and **'uninstall'** for removing application using Helm charts.
+        ```groovy
+        parameters {
+            choice(name: 'ACTION', choices: ['deploy', 'uninstall'], description: 'Choose deploy or uninstall')
+        }
+        ```
     - Copy the below code and replace the HelloWorld Code: 
         ```groovy
         pipeline {
             agent { node { label 'slave' } }
 
+            parameters {
+                choice(name: 'ACTION', choices: ['deploy', 'uninstall'], description: 'Choose deploy or uninstall')
+            }
+
             stages {
                 stage('Checkout') {
                     steps {
                         echo 'Fetching application code from GitHub'
-                        git branch: 'main', url: 'https://github.com/saishandilya/taxi-booking.git'
+                        git branch: 'main', url: '<your github repo url>'
                         script {
                             env.GIT_COMMIT = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
                             echo "Current Git Commit ID: ${env.GIT_COMMIT}"
@@ -197,9 +218,11 @@ terraform apply --auto-approve
         #### `Compile & Build Stage`
         ```groovy
         stage('Compile & Build') {
+            when {
+                expression { params.ACTION == 'deploy' }
+            }
             steps {
                 echo 'Compiling and Building the application code using Apache Maven'
-                sh 'mvn --version'
                 sh 'mvn compile && mvn clean package'
             }
         }
@@ -209,6 +232,9 @@ terraform apply --auto-approve
         #### `Generate Test Report Stage`
         ```groovy
         stage('Generate Test Report') {
+            when {
+                expression { params.ACTION == 'deploy' }
+            }
             steps {
                 echo "Generating test reports for the application code using Maven Surefire plugin"
                 sh 'mvn test surefire-report:report'
@@ -249,6 +275,9 @@ terraform apply --auto-approve
         #### `Code Quality Analysis Stage`
         ```groovy
         stage('Code Quality Analysis') {
+            when {
+                expression { params.ACTION == 'deploy' }
+            }
             steps {
                 echo "Performing Static Code Quality Analysis"
                 sh  """
@@ -279,6 +308,9 @@ terraform apply --auto-approve
         - This stage installs **jq** and calls the `checkSonarCloudQualityGate` function, storing the response in `status`. If the response is **ERROR**, the Quality Gate fails; otherwise, the Quality Gate passes.
         ```groovy
         stage('Quality Gate Check') {
+            when {
+                expression { params.ACTION == 'deploy' }
+            }
             steps {
                 echo "Validating code quality against quality gate metrics"
                 script {
@@ -340,6 +372,9 @@ terraform apply --auto-approve
         #### 
         ```groovy
         stage('Publish Artifacts To Jfrog') {
+            when {
+                expression { params.ACTION == 'deploy' }
+            }
             steps {
                 echo "Publishing Artifacts to JFrog repository"
                 script {
@@ -383,7 +418,295 @@ terraform apply --auto-approve
 8. **Publish Docker Image to Jfrog & Docker Hub**
 9. **Test Container Creation using Docker Image**
 10. **Cluster Validation**
-    - This stage requires an existing **EKS cluster**. If you do not have one and you are doing it for the first time, follow the steps in the **EKS Cluster Setup Guide** to create an EKS cluster. Once completed, return to this step.  
-    - If an EKS cluster already exists, you can skip the creation step.  
+    <!-- **Prerequisite:**  -->
+    - This stage requires an existing **EKS cluster**. 
+        - If you do not have an **EKS cluster** and are setting it up for the first time, follow the steps in the [**EKS Cluster Setup Guide**](readmes/eks-cluster-setup.md) to create one. Once completed, return to this step.
+        - If an **EKS cluster** already exists, you can skip the creation step and proceed.
 
-    #### For EKS setup instructions, refer to:  [**EKS Cluster Setup Guide**](readmes/eks-cluster-setup.md)
+    - Copy the below provided code and add it as a **new stage** in the Pipeline, this stage **Cluster Validation** fetches the **EKS cluster** status using **AWS CLI**. If the cluster status is `"ACTIVE"`, it prints a **success message**. If the cluster is either **not found or not active**, it prints an **error message** and **exits** the pipeline with failure.
+    - Add **AWS_REGION** and **CLUSTER_NAME** to the `environment` section, allowing users to specify the **region** and **cluster name** to determine where the application should be deployed during the pipeline build.
+        ```groovy
+        environment {
+            AWS_REGION = 'us-east-1'
+            CLUSTER_NAME = '<your existing cluster name>' (e.g., taxi booking cluster)
+        }
+        ```
+        #### `Cluster Validation Stage`
+        ```groovy
+        stage('Cluster Validation') {
+            steps {
+                sh """
+                    CLUSTER_STATUS=\$(aws eks describe-cluster \
+                        --region ${AWS_REGION} \
+                        --name ${CLUSTER_NAME} \
+                        --query 'cluster.status' \
+                        --output text 2>/dev/null || echo "NOT_FOUND")
+
+                    if [ "\$CLUSTER_STATUS" != "ACTIVE" ]; then
+                        echo "ERROR: EKS Cluster '${CLUSTER_NAME}' is either NOT FOUND or not ACTIVE. Current Status: \$CLUSTER_STATUS"
+                        exit 1
+                    fi
+
+                    echo "SUCCESS: EKS Cluster '${CLUSTER_NAME}' is: \$CLUSTER_STATUS"
+                """
+            }
+        }
+        ```
+
+11. **Generate Kubeconfig File Stage**
+    - Copy the below provided code and add it as a **new stage** in the Pipeline, this stage **Generate Kubeconfig** creates a kubeconfig file in the pipeline's working directory instead of default location using the AWS CLI, ensuring it's specific to this pipeline. 
+    - It then authenticates with the Kubernetes cluster and fetches the **cluster nodes** using `kubectl`.
+    - Add the **KUBECONFIG** to the `environment` section.
+        ```groovy
+        environment {
+            KUBECONFIG = './kubeconfig'
+        }
+        ```
+    
+        #### `Generate Kubeconfig Stage`
+        ```groovy
+        stage('Generate Kubeconfig') {
+            steps {
+                sh """
+                    aws eks update-kubeconfig \
+                        --region ${AWS_REGION} \
+                        --name ${CLUSTER_NAME} \
+                        --kubeconfig=${KUBECONFIG}
+                """
+                sh """
+                    echo "Fetching the Nodes:"
+                    kubectl get nodes
+                """
+            }
+        }
+        ```
+<!-- 12. **Application Deployment using Shell**(optional: either shell deployment or Helm charts) -->
+12. **Docker Creds Injection Stage**
+    - Log into the Jenkins slave machine **(One-time Process)** and authenticate Docker to pull images from the private registry. This is required for Kubernetes secrets.
+
+        *Note: Once completed, this step is not required again unless the Docker login credentials change.*
+    - Run the following command, then copy and save the output for later use:
+        ```sh
+        cat ~/.docker/config.json | base64 -w0
+        ```
+    - Go to **Manage Jenkins → Manage Credentials**, select **Global**, and click **Add Credentials**.
+    - Select **Kind**: **Secret Text** and provide the following details:
+        - **Secret**: Copy & Paste generated `Docker credentials (config.json)`. 
+        - **ID**: `docker-config-creds`  
+        - **Description**: Docker config base 64 encoded credentials.
+    - Click **Create**.
+    - Copy the below provided code and add it as a **new stage** in the Pipeline, this stage **Docker Creds Injection** updates **secret.yaml** in `helm-chart/templates/secret.yaml` folder, replacing .dockerconfigjson value with the generated Docker credentials.
+
+        *Note: For security reasons, credentials are not stored in GitHub; instead, they are injected dynamically during runtime.*
+    - Refer to the [**Helm Charts Guide**](readmes/helm-chart.md) for details on using Helm charts to deploy the application on EKS.
+        #### `Docker Creds Injection Stage`
+        ```groovy
+        stage('Docker Creds Injection') {
+            steps {
+                withCredentials([string(credentialsId: 'docker-config-creds', variable: 'DOCKER_CONFIG_JSON')]) {
+                    sh '''
+                    sed -i "s|dockerconfigjson: \"\"|dockerconfigjson: \\"$DOCKER_CONFIG_JSON\\"|" ./helm-chart/values.yaml
+                    '''
+                }
+            }
+        }
+        ```
+
+13. **Deploy Application using Helm Stage**
+- Copy the below provided code and add it as a **new stage** in the Pipeline, this stage **Deploy Application using Helm** deploys application on EKS cluster using Helm. 
+    - If the release already exists, it upgrades the deployment; otherwise, it installs it. 
+    - Ensures the namespace exists before deploying the application. 
+    - After deployment, lists all namespaces and resources in the specified namespace to verify the deployment.
+        #### `Deploy Application using Helm Stage`
+        ```groovy
+        stage('Deploy Application using Helm') {
+            when {
+                expression { params.ACTION == 'deploy' }
+            }
+            steps {
+                sh '''
+                    helm upgrade --install <your-release-name(e.g., taxi-booking-release)> ./chart-helm
+                    kubectl get ns
+                    kubectl get all -n <your-namespace-name(e.g., taxi-app)>
+                '''
+            }
+        }
+        ```
+
+14. **Deploy Monitoring Stack using Helm Stage**
+- Copy the below provided code and add it as a **new stage** in the Pipeline, this stage **Deploy Monitoring Stack using Helm Stage** deploys **Monitoring Stack** `(i.e., prometheus & grafana)` on EKS cluster using Helm.
+    - Checks if the **prometheus-community** repository exists; if not, adds it using `helm repo add` and updates it to fetch the latest chart versions.
+    - Deploys or upgrades the `kube-prometheus-stack (Prometheus & Grafana)` in the **monitoring** namespace.
+    - Uses `monitoring-values.yaml` from the Helm chart folder to override the default service configuration to `LoadBalancer`.
+    - Ensures the **monitoring** namespace exists before deploying, then lists all namespaces and resources within it.
+
+        #### `Deploy Monitoring Stack using Helm Stage`
+        ```groovy
+        stage('Deploy Monitoring Stack using Helm') {
+            when {
+                expression { params.ACTION == 'deploy' }
+            }
+            steps {
+                script {
+                    def repoName = 'prometheus-community'
+                    def repoUrl = 'https://prometheus-community.github.io/helm-charts'
+
+                    def repoExists = sh(
+                        script: "helm repo list | grep -w ${repoName}",
+                        returnStatus: true
+                    ) == 0
+
+                    if (!repoExists) {
+                        echo "Adding Helm repo: ${repoName}"
+                        sh "helm repo add ${repoName} ${repoUrl}"
+                    }
+
+                    sh "helm repo update"
+                    
+                    // Helm install or upgrade with values.yaml
+                    sh '''
+                    helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+                        --namespace monitoring \
+                        --create-namespace \
+                        -f ./chart-helm/monitoring-values.yaml
+                    '''
+                    echo "Monitoring stack deployed successfully!"
+                    
+                    sh '''
+                        kubectl get ns
+                        kubectl get all -n monitoring
+                    '''
+                }
+            }
+        }
+        ```
+
+15. **Uninstall Monitoring Stack & Application using Helm Stage**
+- Copy the below provided code and add it as a **new stage** in the Pipeline, this stage **Uninstall Monitoring Stack & Application using Helm Stage** removes **Monitoring Stack** `(i.e., prometheus & grafana)` and **deployed application** on EKS cluster using Helm.
+
+    *Note: This stage is involved during the cleanup process*
+    - Uninstalls the **Prometheus monitoring stack** from the `monitoring` namespace.
+    - Uninstalls the  **Application** from the `custom namespace` (e.g., taxi-app) namespace.
+    - Verify that all resources are removed from both namespaces and Delete the namespaces.
+
+        #### `Uninstall Monitoring Stack & Application using Helm Stage`
+        ```groovy
+        stage('Uninstall monitoring using helm') {
+            when {
+                expression { params.ACTION == 'uninstall' }
+            }
+            steps {
+                script {
+                    echo "Starting Helm uninstall process..."
+
+                    // Uninstall monitoring stack
+                    sh '''
+                    echo "Uninstalling Monitoring stack..."
+                    helm uninstall prometheus --namespace monitoring || true
+                    sleep 30
+                    '''
+
+                    // Uninstall custom application
+                    sh '''
+                    echo "Uninstalling Application..."
+                    helm uninstall <your-release-name(e.g., taxi-booking-release)> --namespace <your-namespace-name(e.g., taxi-app)> || true
+                    sleep 30
+                    '''
+
+                    // Ensure all resources are deleted before removing namespaces
+                    sh '''
+                    echo "Checking if resources are fully removed..."
+                    kubectl get all -n <your-namespace-name(e.g., taxi-app)> || true
+                    kubectl get all -n monitoring || true
+                    '''
+
+                    // Delete namespaces if empty
+                    sh '''
+                    echo "Deleting namespaces..."
+                    kubectl delete ns <your-namespace-name(e.g., taxi-app)> --ignore-not-found
+                    kubectl delete ns monitoring --ignore-not-found
+                    '''
+
+                    echo "Uninstallation and cleanup completed!"
+                }
+            }
+        }
+        ```
+
+### **3. Jenkinsfile and Webhook Configuration**
+1. **Running the Pipeline Directly in Jenkins**  
+- After adding all the above stages to the pipeline, **Validate** the pipeline script and check for any **syntax issues**.  
+- Click **Save & Apply**.  
+- Run the pipeline by clicking **Build with Parameters**. Choose **deploy** to deploy the application or **uninstall** to remove the application.
+
+2. **Using a Jenkinsfile from GitHub**
+- Copy the pipeline stages into a **Jenkinsfile** and push it to your `GitHub repository`. Alternatively, update the existing `Jenkinsfile` in the cloned application repository by replacing it with your custom values.  
+- In Jenkins, navigate to the **Pipeline** section and set **Definition** to `Pipeline Script from SCM`.  
+- Select **SCM** as **Git** and provide the following details:  
+  - **Repository URL**: `<your GitHub repository URL>`  
+  - **Credentials**: `<your Git credentials>`  
+  - **Branches to Build**: `main`  
+- Click **Apply & Save**.
+
+3. **Webhook Configuration** (Need to work on this)
+
+### **4. Application Validation and Monitoring**
+1. **Verify Application Deployment Status**
+- Login to the **Jenkins Slave machine** and run the command:
+    ```sh
+    kubectl get all -n <custom namespace>
+    ```
+- Copy the **Load Balancer URL** or go to AWS console and LoadBalancer and fetch DNS Name.
+- Open a browser and access the application using the ALB URL, appending port 8001 and the application name.
+    #### Example:
+    ```sh
+    http://<LoadBalancer-DNS>:8001/taxi-booking-1.0.1/
+    ```
+2. **Access Prometheus Dashboard**
+- Run the command on the Jenkins Slave machine:
+    ```sh
+    kubectl get all -n monitoring
+    ```
+- Identify the `service/prometheus-kube-prometheus-prometheus`.
+- Fetch the **LoadBalancer DNS name** and access **Prometheus** on port `9090`.
+    ```sh
+    http://<LoadBalancer-DNS>:9090
+    ```
+    *Note: If a security warning appears, click "Continue to site"*
+- Navigate to **Status** > **Targets** to view service details.
+3. **Access Grafana Dashboard**
+- From the response of the above command (`kubectl get all -n monitoring`), find `service/prometheus-grafana`.
+- Fetch the **LoadBalancer DNS name** and access **Grafana** (Grafana runs on port 80 by default).
+    ```sh
+    http://<LoadBalancer-DNS>
+    ```
+- Wait a few minutes if the application doesn’t load immediately.
+- **Login Credentials**:
+    - **Username:** `admin`
+    - **Password:** `prom-operator`
+
+### **5. Cleanup Process**
+1. **Uninstall Application and Monitoring Stack**
+- In the **application pipeline**, click `Build with Parameters` and choose **uninstall**.
+- This triggers the `Uninstall monitoring using Helm` stage, which removes the **monitoring stack** and **application**.
+2. **EKS Cluster Cleanup**
+- In the **infrastructure pipeline**, click `Build with Parameters` and choose **destroy**.
+- This triggers the `Terraform Destroy` stage, which deletes the **EKS cluster**.
+- The process may take 15–20 minutes to complete.
+3. **Infrastucture Cleanup**
+- On the **local machine**, navigate to the `infrastructure` folder.
+- Run the command: `terraform destroy --auto-approve`.
+- This removes the **three EC2 instances** used for the `Ansible` and `Jenkins Master-Slave` configuration.
+
+## **Conclusion**  
+
+Congratulations! 🎉 You have successfully automated the deployment of application on **EKS Cluster**. 
+
+By following this guide, you now have a clear understanding of:
+
+-   **Setting up infrastructure** using Terraform.
+-   **Deploying applications** on Kubernetes with Helm.
+-   **Monitoring the deployment** using Prometheus and Grafana.
+-   **Cleaning up resources** efficiently to optimize cost and management.
+
+Thank you for following along until the end. **Happy Automation!** 🚀

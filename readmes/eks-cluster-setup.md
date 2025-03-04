@@ -127,7 +127,8 @@ The Jenkins slave machine requires an IAM role with permissions to run the EKS d
 - In the **Configure**, select the **General**, provide a **Description** (e.g., `Jenkins pipeline to deploy AWS EKS cluster using Terraform`), enable **Discard Old Builds**, set **Days to Keep Builds** (e.g., `7`), and **Max # of Builds to Keep** (e.g., `5`).
 - In the **Pipeline** section, set **Definition** to `Pipeline Script` and inside **Script** select `Hello World` from the dropdown.
 - Click **Apply & Save**.
-- Navigate to **Manage Jenkins → Tools**, Scroll down to **Terraform installations** and click `Add Terraform`, Provide a **Name** (e.g., `terraform`), Check the box for **Install automatically**, Select the **latest Linux AMD version** (e.g., `Terraform 1.5.0 Linux (amd64)`) and Click **Apply & Save**.  
+- Navigate to **Manage Jenkins → Tools**, Scroll down to **Terraform installations** and click `Add Terraform`, Provide a **Name** (e.g., `terraform`), Check the box for **Install automatically**, Select the **latest Linux AMD version** (e.g., `Terraform 1.5.0 Linux (amd64)`) and Click **Apply & Save**. 
+
 ### **3. Creating Pipeline Stages**
 1. **Checkout Stage:** (Need changes need to tell to fork the repository to them and create there terrformtfvars this fork or clone helps in Pipeline using Jenkinsfile step.)
     -  In the **Pipeline** section, click **Pipeline Syntax**, search for **Git**, enter the **Repository URL** (`https://github.com/saishandilya/taxi-booking-terraform-infra.git`), select **Branch** as `main`, set **Credentials** to `None`, generate the **Pipeline Script**, copy the generated code, and replace it in the **checkout stage**.  
@@ -286,21 +287,23 @@ The Jenkins slave machine requires an IAM role with permissions to run the EKS d
         }
         ```
 
-### **3. Jenkins File Creation**
+### **4. Jenkinsfile and Webhook Configuration** (Need to add a webhook)
 
-#### **1. Running the Pipeline Directly in Jenkins**  
-- **Validate** the pipeline script and check for any **syntax issues**.  
+1. **Running the Pipeline Directly in Jenkins**  
+- After adding all the above stages to the pipeline, **Validate** the pipeline script and check for any **syntax issues**.  
 - Click **Save & Apply**.  
 - Run the pipeline by clicking **Build with Parameters**. Choose **apply** to create resources or **destroy** to delete them.  
 
-#### **2. Using a Jenkinsfile from GitHub**  
-- Copy the pipeline stages into a **Jenkinsfile** and push it to your `GitHub repository` (inside the `infra` folder).  
+2. **Using a Jenkinsfile from GitHub**  
+- Copy the pipeline stages into a **Jenkinsfile** and push it to your `GitHub repository` inside the `infra` folder. Alternatively, update the existing `Jenkinsfile` in the cloned infra repository by replacing it with your custom values.  
 - In Jenkins, navigate to the **Pipeline** section and set **Definition** to `Pipeline Script from SCM`.  
 - Select **SCM** as **Git** and provide the following details:  
   - **Repository URL**: `<your GitHub repository URL>`  
   - **Credentials**: `<your Git credentials created in the application pipeline setup>`  
   - **Branches to Build**: `main`  
 - Click **Apply & Save**. 
+
+3. **Webhook Configuration**(Need to work on this)
 
 ## **Conclusion**  
 

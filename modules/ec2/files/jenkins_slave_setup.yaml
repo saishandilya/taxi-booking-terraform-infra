@@ -48,3 +48,30 @@
     service:
       name: docker
       enabled: yes
+
+  - name: Download and install the latest kubectl
+    shell: |
+      curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+      chmod +x kubectl
+      mv kubectl /usr/local/bin/kubectl
+
+  - name: Verify kubectl installation
+    command: kubectl version --client --output=yaml
+    register: kubectl_version
+    ignore_errors: yes
+
+  - name: Print installed kubectl version
+    debug:
+      msg: "Installed kubectl version: {{ kubectl_version.stdout_lines | default('Kubectl version not found or command failed.') }}"
+
+  - name: Install Helm
+    shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+  - name: Verify Helm installation
+    command: helm version --short
+    register: helm_version
+    ignore_errors: yes
+
+  - name: Print installed Helm version
+    debug:
+      msg: "Installed Helm version: {{ helm_version.stdout | default('Helm version not found or command failed.') }}"
